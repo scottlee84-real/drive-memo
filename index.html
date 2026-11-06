@@ -20,7 +20,6 @@
       flex-direction: column;
       align-items: center;
       justify-content: space-between;
-      /* 화면을 아래로 당겨 새로고침(Pull-to-refresh)이 되도록 스크롤 복원 */
       overscroll-behavior-y: auto;
       touch-action: pan-y;
       overflow-y: auto;
@@ -107,20 +106,29 @@
     let audioChunks = [];
     let isRecording = false;
 
+    // 브라우저 터치 상호작용 내에서 확실하게 진동을 울리는 함수
     function vibrate(pattern) {
-      if (navigator.vibrate) navigator.vibrate(pattern);
+      if ("vibrate" in navigator) {
+        try {
+          navigator.vibrate(pattern);
+        } catch (e) {
+          console.log("진동 에러:", e);
+        }
+      }
     }
 
     async function toggleRecord() {
       if (isRecording) {
+        // [중요] 사용자가 터치한 바로 이 순간에 진동을 울려야 브라우저 보안에 막히지 않음
+        vibrate([100, 60, 100]); // 징-징 두 번 진동
         stopRecording();
       } else {
+        vibrate([80]); // 시작 시 짧게 징-
         startRecording();
       }
     }
 
     async function startRecording() {
-      vibrate([80]);
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         
@@ -161,6 +169,21 @@
         mediaRecorder.stop();
         mediaRecorder.stream.getTracks().forEach(track => track.stop());
       }
+
+      // 화면 즉시 전송 모드로 전환
+      const btn = document.getElementById('recordBtn');
+      btn.className = "record-btn sent";
+      document.getElementById('btnIcon').innerText = "🚀";
+      document.getElementById('btnLabel').innerText = "저장 완료";
+      document.getElementById('statusText').innerText = "✅ 백그라운드 저장 중! 바로 앱을 전환하셔도 됩니다.";
+
+      // 1.2초 후 초기 상태로 복귀
+      setTimeout(() => {
+        btn.className = "record-btn";
+        document.getElementById('btnIcon').innerText = "🎙️";
+        document.getElementById('btnLabel').innerText = "녹음 시작";
+        document.getElementById('statusText').innerText = "버튼을 눌러 녹음을 시작하세요";
+      }, 1200);
     }
 
     function uploadInstantly() {
@@ -176,29 +199,13 @@
           audioBase64: base64Data
         });
 
-        // 1. 서버 응답을 기다리지 않고 패킷을 즉시 발송 (Non-blocking)
+        // 비동기 전송
         fetch(GAS_WEB_APP_URL, {
           method: 'POST',
           mode: 'no-cors',
           headers: { 'Content-Type': 'text/plain' },
           body: payload
         }).catch(err => console.log("전송 로그:", err));
-
-        // 2. 누르자마자 0.1초 만에 진동 및 완료 표시
-        vibrate([150]);
-        const btn = document.getElementById('recordBtn');
-        btn.className = "record-btn sent";
-        document.getElementById('btnIcon').innerText = "🚀";
-        document.getElementById('btnLabel').innerText = "저장 완료";
-        document.getElementById('statusText').innerText = "✅ 백그라운드 저장 중! 바로 앱을 전환하셔도 됩니다.";
-
-        // 3. 1.2초 후 초기 상태로 자동 리셋
-        setTimeout(() => {
-          btn.className = "record-btn";
-          document.getElementById('btnIcon').innerText = "🎙️";
-          document.getElementById('btnLabel').innerText = "녹음 시작";
-          document.getElementById('statusText').innerText = "버튼을 눌러 녹음을 시작하세요";
-        }, 1200);
       };
     }
   </script>
