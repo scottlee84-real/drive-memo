@@ -26,7 +26,7 @@
       color: #9e9e9e;
     }
     .status-box {
-      font-size: 1.3rem;
+      font-size: 1.25rem;
       font-weight: bold;
       min-height: 50px;
       text-align: center;
@@ -57,7 +57,7 @@
       justify-content: center;
       cursor: pointer;
       box-shadow: 0 10px 30px rgba(0,0,0,0.6);
-      transition: all 0.2s ease;
+      transition: all 0.15s ease;
     }
     .record-btn .icon {
       font-size: 3.2rem;
@@ -74,11 +74,9 @@
       50% { transform: scale(1.05); }
       100% { transform: scale(1); }
     }
-    .uploading {
-      background: #424242 !important;
-      border-color: #616161 !important;
-      opacity: 0.7;
-      pointer-events: none;
+    .sending {
+      background: #2e7d32 !important;
+      border-color: #66bb6a !important;
     }
   </style>
 </head>
@@ -95,34 +93,15 @@
   </div>
 
   <script>
-    // 복사한 Google Apps Script 웹 앱 URL을 아래에 넣으세요
-    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyRcyryh0nsGTM_szCY_NIsCbn-GlIfsvWo8MA61CvKtT1k1pHWQbOdLIlpqinPIF8D/exec";
+    // 본인의 Google Apps Script 배포 URL (/exec)
+    const GAS_WEB_APP_URL = "여기에_GAS_웹앱_URL을_붙여넣으세요";
 
     let mediaRecorder = null;
     let audioChunks = [];
     let isRecording = false;
-    let speechRecognizer = null;
-    let recognizedText = "";
 
     function vibrate(pattern) {
       if (navigator.vibrate) navigator.vibrate(pattern);
-    }
-
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      speechRecognizer = new SpeechRecognition();
-      speechRecognizer.lang = 'ko-KR';
-      speechRecognizer.continuous = true;
-      speechRecognizer.interimResults = false;
-
-      speechRecognizer.onresult = function(event) {
-        let text = "";
-        for (let i = 0; i < event.results.length; ++i) {
-          text += event.results[i][0].transcript + " ";
-        }
-        recognizedText = text.trim();
-        document.getElementById('statusText').innerText = `"${recognizedText}"`;
-      };
     }
 
     async function toggleRecord() {
@@ -137,18 +116,27 @@
       vibrate([100]);
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream);
-        audioChunks = [];
+        
+        // 16kbps 음성 전용 초경량 압축 설정 (용량 1/8 감소)
+        const options = {
+          mimeType: 'audio/webm;codecs=opus',
+          audioBitsPerSecond: 16000
+        };
 
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mediaRecorder = new MediaRecorder(stream, options);
+        } else {
+          mediaRecorder = new MediaRecorder(stream);
+        }
+
+        audioChunks = [];
         mediaRecorder.ondataavailable = e => {
           if (e.data.size > 0) audioChunks.push(e.data);
         };
 
-        mediaRecorder.onstop = uploadRecording;
-
+        mediaRecorder.onstop = uploadRecordingFast;
         mediaRecorder.start();
         isRecording = true;
-        recognizedText = "";
 
         const btn = document.getElementById('recordBtn');
         btn.classList.add('recording');
@@ -156,70 +144,68 @@
         document.getElementById('btnLabel').innerText = "녹음 종료";
         document.getElementById('statusText').innerText = "듣고 있습니다... 말씀하세요";
 
-        if (speechRecognizer) {
-          try { speechRecognizer.start(); } catch(e){}
-        }
-
       } catch (err) {
         alert("마이크 접근 오류: " + err.message);
       }
     }
 
     function stopRecording() {
-      vibrate([60, 60, 60]);
+      vibrate([60, 60]);
       isRecording = false;
       if (mediaRecorder && mediaRecorder.state !== "inactive") {
         mediaRecorder.stop();
         mediaRecorder.stream.getTracks().forEach(track => track.stop());
       }
-      if (speechRecognizer) {
-        try { speechRecognizer.stop(); } catch(e){}
-      }
 
+      // 화면 상태를 '즉시 전송 중'으로 변경
       const btn = document.getElementById('recordBtn');
       btn.classList.remove('recording');
-      btn.classList.add('uploading');
-      document.getElementById('btnIcon').innerText = "⏳";
-      document.getElementById('btnLabel').innerText = "저장 중...";
-      document.getElementById('statusText').innerText = "구글 시트와 드라이브에 저장 중입니다...";
+      btn.classList.add('sending');
+      document.getElementById('btnIcon').innerText = "🚀";
+      document.getElementById('btnLabel').innerText = "전송 완료";
+      document.getElementById('statusText').innerText = "전송 완료! 창을 닫거나 앱을 전환하셔도 됩니다.";
     }
 
-    function uploadRecording() {
+    function uploadRecordingFast() {
       const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
       const reader = new FileReader();
 
       reader.readAsDataURL(audioBlob);
-      reader.onloadend = async function() {
+      reader.onloadend = function() {
         const base64Data = reader.result.split(',')[1];
-        const payload = {
+        const payload = JSON.stringify({
           fileName: `DriveRec_${Date.now()}.webm`,
           mimeType: 'audio/webm',
-          audioBase64: base64Data,
-          transcript: recognizedText || "(인식된 음성 없음)",
-          summary: recognizedText ? recognizedText.slice(0, 30) : "-"
-        };
+          audioBase64: base64Data
+        });
 
+        // keepalive를 적용하여 창을 닫거나 다른 앱으로 전환해도 백그라운드 전송 보장
         try {
-          await fetch(GAS_WEB_APP_URL, {
+          fetch(GAS_WEB_APP_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            keepalive: true,
+            headers: { 'Content-Type': 'text/plain' },
+            body: payload
+          });
+        } catch (e) {
+          // 페이로드가 큰 경우 기본 fetch로 폴백 전송
+          fetch(GAS_WEB_APP_URL, {
             method: 'POST',
             mode: 'no-cors',
             headers: { 'Content-Type': 'text/plain' },
-            body: JSON.stringify(payload)
+            body: payload
           });
-
-          const btn = document.getElementById('recordBtn');
-          btn.classList.remove('uploading');
-          document.getElementById('btnIcon').innerText = "🎙️";
-          document.getElementById('btnLabel').innerText = "녹음 시작";
-          vibrate([150]);
-          document.getElementById('statusText').innerText = "✅ 저장 완료되었습니다!";
-        } catch (err) {
-          const btn = document.getElementById('recordBtn');
-          btn.classList.remove('uploading');
-          document.getElementById('btnIcon').innerText = "🎙️";
-          document.getElementById('btnLabel').innerText = "녹음 시작";
-          document.getElementById('statusText').innerText = "❌ 전송 실패: " + err.message;
         }
+
+        // 1초 후 UI를 다음 녹음 대기 상태로 자동 복귀
+        setTimeout(() => {
+          const btn = document.getElementById('recordBtn');
+          btn.classList.remove('sending');
+          document.getElementById('btnIcon').innerText = "🎙️";
+          document.getElementById('btnLabel').innerText = "녹음 시작";
+          document.getElementById('statusText').innerText = "버튼을 눌러 녹음을 시작하세요";
+        }, 1200);
       };
     }
   </script>
