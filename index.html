@@ -74,9 +74,15 @@
       50% { transform: scale(1.05); }
       100% { transform: scale(1); }
     }
-    .sending {
+    .uploading {
+      background: #f57f17 !important;
+      border-color: #ffb74d !important;
+      pointer-events: none;
+    }
+    .sent {
       background: #2e7d32 !important;
       border-color: #66bb6a !important;
+      box-shadow: 0 0 35px rgba(76, 175, 80, 0.7);
     }
   </style>
 </head>
@@ -93,8 +99,8 @@
   </div>
 
   <script>
-    // 본인의 Google Apps Script 배포 URL (/exec)
-    const GAS_WEB_APP_URL = "여기에_GAS_웹앱_URL을_붙여넣으세요";
+    // ★ 본인의 Google Apps Script 웹앱 URL (/exec 로 끝나는 주소)
+    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwBnVmY0k_0jnB17H7d1bt8twBSYc7Ta9mjgkTQIXHoAFif4u6AN/exec";
 
     let mediaRecorder = null;
     let audioChunks = [];
@@ -113,11 +119,10 @@
     }
 
     async function startRecording() {
-      vibrate([100]);
+      vibrate([80]);
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         
-        // 16kbps 음성 전용 초경량 압축 설정 (용량 1/8 감소)
         const options = {
           mimeType: 'audio/webm;codecs=opus',
           audioBitsPerSecond: 16000
@@ -134,12 +139,12 @@
           if (e.data.size > 0) audioChunks.push(e.data);
         };
 
-        mediaRecorder.onstop = uploadRecordingFast;
+        mediaRecorder.onstop = processAndSend;
         mediaRecorder.start();
         isRecording = true;
 
         const btn = document.getElementById('recordBtn');
-        btn.classList.add('recording');
+        btn.className = "record-btn recording";
         document.getElementById('btnIcon').innerText = "⏹️";
         document.getElementById('btnLabel').innerText = "녹음 종료";
         document.getElementById('statusText').innerText = "듣고 있습니다... 말씀하세요";
@@ -150,28 +155,26 @@
     }
 
     function stopRecording() {
-      vibrate([60, 60]);
       isRecording = false;
       if (mediaRecorder && mediaRecorder.state !== "inactive") {
         mediaRecorder.stop();
         mediaRecorder.stream.getTracks().forEach(track => track.stop());
       }
 
-      // 화면 상태를 '즉시 전송 중'으로 변경
+      // 1단계: 실제 전송이 일어나는 동안 잠시 노란색 로딩 표시
       const btn = document.getElementById('recordBtn');
-      btn.classList.remove('recording');
-      btn.classList.add('sending');
-      document.getElementById('btnIcon').innerText = "🚀";
-      document.getElementById('btnLabel').innerText = "전송 완료";
-      document.getElementById('statusText').innerText = "전송 완료! 창을 닫거나 앱을 전환하셔도 됩니다.";
+      btn.className = "record-btn uploading";
+      document.getElementById('btnIcon').innerText = "⏳";
+      document.getElementById('btnLabel').innerText = "전송 중...";
+      document.getElementById('statusText').innerText = "구글로 전송 중... 잠시만 기다려주세요";
     }
 
-    function uploadRecordingFast() {
+    function processAndSend() {
       const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
       const reader = new FileReader();
 
       reader.readAsDataURL(audioBlob);
-      reader.onloadend = function() {
+      reader.onloadend = async function() {
         const base64Data = reader.result.split(',')[1];
         const payload = JSON.stringify({
           fileName: `DriveRec_${Date.now()}.webm`,
@@ -179,33 +182,39 @@
           audioBase64: base64Data
         });
 
-        // keepalive를 적용하여 창을 닫거나 다른 앱으로 전환해도 백그라운드 전송 보장
         try {
-          fetch(GAS_WEB_APP_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            keepalive: true,
-            headers: { 'Content-Type': 'text/plain' },
-            body: payload
-          });
-        } catch (e) {
-          // 페이로드가 큰 경우 기본 fetch로 폴백 전송
-          fetch(GAS_WEB_APP_URL, {
+          // 구글 웹앱으로 실제 전송 (약 0.5~0.8초 소요)
+          await fetch(GAS_WEB_APP_URL, {
             method: 'POST',
             mode: 'no-cors',
             headers: { 'Content-Type': 'text/plain' },
             body: payload
           });
+
+          // 2단계: 전송 완료가 확인된 직후 녹색 변경 + 손에 진동 신호 전달
+          const btn = document.getElementById('recordBtn');
+          btn.className = "record-btn sent";
+          document.getElementById('btnIcon').innerText = "🚀";
+          document.getElementById('btnLabel').innerText = "전송 완료";
+          document.getElementById('statusText').innerText = "✅ 전송 완료! 이제 앱을 전환하셔도 됩니다.";
+          vibrate([200]); // 전송 완료 체감 진동
+
+        } catch (err) {
+          const btn = document.getElementById('recordBtn');
+          btn.className = "record-btn";
+          document.getElementById('btnIcon').innerText = "⚠️";
+          document.getElementById('btnLabel').innerText = "재시도";
+          document.getElementById('statusText').innerText = "전송 실패: " + err.message;
         }
 
-        // 1초 후 UI를 다음 녹음 대기 상태로 자동 복귀
+        // 1.5초 후 자동으로 초기 대기 상태 복귀
         setTimeout(() => {
           const btn = document.getElementById('recordBtn');
-          btn.classList.remove('sending');
+          btn.className = "record-btn";
           document.getElementById('btnIcon').innerText = "🎙️";
           document.getElementById('btnLabel').innerText = "녹음 시작";
           document.getElementById('statusText').innerText = "버튼을 눌러 녹음을 시작하세요";
-        }, 1200);
+        }, 1500);
       };
     }
   </script>
