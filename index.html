@@ -99,8 +99,8 @@
   </div>
 
   <script>
-    // ★ 본인의 Google Apps Script 웹앱 URL (/exec 로 끝나는 주소)
-    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwBnVmY0k_0jnB17H7d1bt8twBSYc7Ta9mjgkTQIXHoAFif4u6AN/exec";
+    // 현재 실제 배포된 최신 웹앱 URL
+    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyRcyryh0nsGTM_szCY_NIsCbn-GlIfsvWo8MA61CvKtT1k1pHWQbOdLIlpqinPIF8D/exec";
 
     let mediaRecorder = null;
     let audioChunks = [];
@@ -161,7 +161,6 @@
         mediaRecorder.stream.getTracks().forEach(track => track.stop());
       }
 
-      // 1단계: 실제 전송이 일어나는 동안 잠시 노란색 로딩 표시
       const btn = document.getElementById('recordBtn');
       btn.className = "record-btn uploading";
       document.getElementById('btnIcon').innerText = "⏳";
@@ -183,7 +182,6 @@
         });
 
         try {
-          // 구글 웹앱으로 실제 전송 (약 0.5~0.8초 소요)
           await fetch(GAS_WEB_APP_URL, {
             method: 'POST',
             mode: 'no-cors',
@@ -191,13 +189,12 @@
             body: payload
           });
 
-          // 2단계: 전송 완료가 확인된 직후 녹색 변경 + 손에 진동 신호 전달
           const btn = document.getElementById('recordBtn');
           btn.className = "record-btn sent";
           document.getElementById('btnIcon').innerText = "🚀";
           document.getElementById('btnLabel').innerText = "전송 완료";
           document.getElementById('statusText').innerText = "✅ 전송 완료! 이제 앱을 전환하셔도 됩니다.";
-          vibrate([200]); // 전송 완료 체감 진동
+          vibrate([200]);
 
         } catch (err) {
           const btn = document.getElementById('recordBtn');
@@ -207,7 +204,6 @@
           document.getElementById('statusText').innerText = "전송 실패: " + err.message;
         }
 
-        // 1.5초 후 자동으로 초기 대기 상태 복귀
         setTimeout(() => {
           const btn = document.getElementById('recordBtn');
           btn.className = "record-btn";
